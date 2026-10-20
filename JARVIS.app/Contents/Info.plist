@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>JARVIS</string>
+  <key>CFBundleDisplayName</key>
+  <string>JARVIS</string>
+  <key>CFBundleIdentifier</key>
+  <string>ai.jarvis.local</string>
+  <key>CFBundleVersion</key>
+  <string>1.0.9</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0.9</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleExecutable</key>
+  <string>JARVIS</string>
+  <key>CFBundleIconFile</key>
+  <string>icon</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>JARVIS needs the microphone to hear your voice commands.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>JARVIS controls apps on your behalf (open, focus, quit).</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>12.0</string>
+  <!-- SECURITY: No NSAppTransportSecurity exceptions. JARVIS makes
+       zero network calls — it doesn't need any ATS bypass. -->
+</dict>
+</plist>

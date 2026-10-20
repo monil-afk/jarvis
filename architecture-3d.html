@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JARVIS — 3D System Architecture</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #020608; overflow: hidden; font-family: 'SF Mono', 'Consolas', monospace; color: #bfefff; }
+  #scene { position: fixed; inset: 0; }
+  #title {
+    position: fixed; top: 22px; left: 28px; z-index: 10; pointer-events: none;
+  }
+  #title h1 { font-size: 22px; letter-spacing: 6px; color: #7fdcff; text-shadow: 0 0 18px rgba(80,200,255,.7); font-weight: 600; }
+  #title p { font-size: 11px; letter-spacing: 2px; color: #4a7a94; margin-top: 6px; }
+  #hint {
+    position: fixed; bottom: 20px; left: 28px; z-index: 10; pointer-events: none;
+    font-size: 11px; letter-spacing: 1px; color: #3d6a85;
+  }
+  #panel {
+    position: fixed; top: 22px; right: 22px; width: 320px; z-index: 10;
+    background: rgba(4, 18, 28, 0.88); border: 1px solid rgba(90, 200, 255, 0.35);
+    border-radius: 6px; padding: 18px 18px 16px; backdrop-filter: blur(6px);
+    box-shadow: 0 0 30px rgba(60, 180, 255, 0.12), inset 0 0 40px rgba(40,140,200,0.05);
+    display: none;
+  }
+  #panel.visible { display: block; }
+  #panel .layer-tag { font-size: 10px; letter-spacing: 3px; color: #5fb8e8; margin-bottom: 8px; }
+  #panel h2 { font-size: 16px; color: #d8f4ff; letter-spacing: 1px; margin-bottom: 10px; text-shadow: 0 0 12px rgba(120,210,255,.5); }
+  #panel .row { display: flex; margin-bottom: 7px; font-size: 12px; line-height: 1.5; }
+  #panel .k { width: 74px; flex-shrink: 0; color: #5fb8e8; letter-spacing: 1px; font-size: 10px; padding-top: 2px; }
+  #panel .v { color: #b9dcec; }
+  #panel .cost { color: #7dffb0; }
+  #close { position: absolute; top: 10px; right: 12px; cursor: pointer; color: #5fb8e8; font-size: 16px; background: none; border: none; }
+  #close:hover { color: #d8f4ff; }
+  #legend {
+    position: fixed; bottom: 20px; right: 22px; z-index: 10; font-size: 10px;
+    letter-spacing: 1px; color: #3d6a85; text-align: right; line-height: 1.9; pointer-events: none;
+  }
+  #legend .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-left: 8px; vertical-align: middle; }
+  #flow-label {
+    position: fixed; bottom: 64px; left: 50%; transform: translateX(-50%); z-index: 10;
+    font-size: 11px; letter-spacing: 3px; color: #67c7f5; pointer-events: none;
+    text-shadow: 0 0 14px rgba(90,200,255,.6);
+  }
+</style>
+<script type="importmap">
+{ "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="scene"></div>
+<div id="title">
+  <h1>JARVIS</h1>
+  <p>LOCAL VOICE AGENT &mdash; SYSTEM ARCHITECTURE &mdash; 100% OFFLINE &mdash; $0</p>
+</div>
+<div id="hint">DRAG TO ORBIT &nbsp;&middot;&nbsp; SCROLL TO ZOOM &nbsp;&middot;&nbsp; CLICK ANY MODULE FOR DETAILS</div>
+<div id="flow-label">&#9654; LIVE COMMAND FLOW &mdash; FOLLOW THE PULSES</div>
+<div id="legend">
+  <div><span class="dot" style="background:#54d8ff"></span> VOICE PIPELINE</div>
+  <div><span class="dot" style="background:#b78cff"></span> BRAIN</div>
+  <div><span class="dot" style="background:#7dffb0"></span> SKILLS &amp; SYSTEM</div>
+  <div><span class="dot" style="background:#ffc46b"></span> INTERFACE</div>
+</div>
+<div id="panel">
+  <button id="close">&times;</button>
+  <div class="layer-tag" id="p-layer"></div>
+  <h2 id="p-name"></h2>
+  <div class="row"><div class="k">DOES</div><div class="v" id="p-does"></div></div>
+  <div class="row"><div class="k">TECH</div><div class="v" id="p-tech"></div></div>
+  <div class="row"><div class="k">COST</div><div class="v cost" id="p-cost"></div></div>
+  <div class="row"><div class="k">WHY</div><div class="v" id="p-why"></div></div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ============================== DATA ============================== */
+const LAYERS = [
+  { name: 'INTERFACE', sub: 'What you see & hear', y: 9,  color: 0xffc46b },
+  { name: 'VOICE PIPELINE', sub: 'Ears & mouth — all local', y: 4.5, color: 0x54d8ff },
+  { name: 'BRAIN', sub: 'Thinks, remembers, decides', y: 0, color: 0xb78cff },
+  { name: 'SKILLS & macOS', sub: 'Hands — acts on your Mac', y: -4.5, color: 0x7dffb0 },
+];
+
+const MODULES = [
+  // INTERFACE
+  { layer: 0, x: -4.4, label: 'HUD', name: 'Holographic HUD', does: 'Iron-Man-lab interface from your photo: arc-reactor core pulses while listening / thinking / speaking; panels show timetable, system stats, recent actions.', tech: 'HTML + CSS + JS, served on localhost only', cost: 'Free', why: 'Zero framework = instant load. Localhost-only = no one else on the network can open it.' },
+  { layer: 0, x: 0, label: 'CORE', name: 'Arc-Reactor Core', does: 'Single glowing status orb. Idle = slow pulse, listening = bright ring, thinking = spin, speaking = waveform ripple.', tech: 'Canvas animation over WebSocket state', cost: 'Free', why: 'One glance tells you what JARVIS is doing — no reading required.' },
+  { layer: 0, x: 4.4, label: 'VOICE OUT', name: 'Voice Output', does: 'Speaks results in the Magnus voice — British, deep, measured, film-JARVIS register.', tech: 'macOS `say` (built-in) tuned to British English voice', cost: 'Free', why: 'Built into macOS, fully offline, zero latency from network.' },
+  // VOICE PIPELINE
+  { layer: 1, x: -5.5, label: 'WAKE', name: 'Wake Word', does: 'Always listening for "jarvis". Uses ~1% CPU. Everything else sleeps until it hears the word.', tech: 'openWakeWord, local model ~50MB', cost: 'Free', why: 'No cloud = no audio ever leaves your Mac while idle.' },
+  { layer: 1, x: -1.8, label: 'STT', name: 'Speech → Text', does: 'Transcribes your command in ~1 second after the wake word.', tech: 'mlx-whisper (Apple-Silicon optimized); fallback faster-whisper tiny.en', cost: 'Free', why: 'mlx-whisper uses the Neural Engine — fast without a GPU bill.' },
+  { layer: 1, x: 1.8, label: 'TTS', name: 'Text → Speech', does: 'Turns JARVIS replies into spoken audio in the chosen voice.', tech: 'macOS `say` + voice tuning', cost: 'Free', why: 'Offline system TTS — private and instant.' },
+  { layer: 1, x: 5.5, label: 'VAD', name: 'Voice Activity', does: 'Detects when you start and stop speaking so recording is tight — no dead air, no cut-off words.', tech: 'Silero VAD / webrtcvad, local', cost: 'Free', why: 'Clean audio boundaries = fewer transcription errors.' },
+  // BRAIN
+  { layer: 2, x: -6.6, label: 'LLM', name: 'Ollama Brain', does: 'Understands plain English, picks the right skill, holds conversation. The "brain of its own".', tech: 'Ollama + llama3.2:3b (~2GB), tool-calling loop', cost: 'Free', why: 'Runs on M-series easily, good at function calling, fully offline.' },
+  { layer: 2, x: -3.3, label: 'MEMORY', name: 'SQLite Memory', does: 'Your profile, timetable, preferences, every command and correction. This is how it "knows you so well".', tech: 'SQLite — single local file, zero dependencies', cost: 'Free', why: 'Your data never leaves the machine. Queryable forever.' },
+  { layer: 2, x: 0, label: 'SKILLS', name: 'Skill Registry', does: 'Every action JARVIS can take is a registered skill with a declared permission. Nothing ad-hoc.', tech: 'Python registry — each skill is one file', cost: 'Free', why: 'One feature at a time = one skill file at a time. Clean growth.' },
+  { layer: 2, x: 3.3, label: 'SAFETY', name: 'Security Gates', does: 'Blocks unapproved skills, asks before destructive actions, sandboxes file access, writes an audit log of everything.', tech: 'security.py — permission gates + audit trail', cost: 'Free', why: 'A misheard word must never delete files or send messages.' },
+  { layer: 2, x: 6.6, label: 'DAY', name: 'Timetable Engine', does: 'Reads your config + calendar, briefs your morning, warns "standup in 10 minutes". The proactive part.', tech: 'timetable.py + jarvis.yaml profile', cost: 'Free', why: 'A butler anticipates — this is the "make my day better" module.' },
+  // SKILLS & macOS
+  { layer: 3, x: -5.5, label: 'SYSTEM', name: 'System Skills', does: 'Volume, brightness, sleep, lock, screenshots — the machine itself, by voice.', tech: 'Python + AppleScript / osascript', cost: 'Free', why: 'Native macOS hooks, no drivers to install.' },
+  { layer: 3, x: -1.8, label: 'APPS', name: 'App Skills', does: 'Open, quit, focus any app. "Open my notes" just works.', tech: 'AppleScript via Accessibility permission', cost: 'Free', why: 'Uses the same automation macOS itself offers.' },
+  { layer: 3, x: 1.8, label: 'FILES', name: 'File Skills', does: 'Find, open, organize files by voice — sandboxed to Documents / Downloads / Desktop.', tech: 'Python pathlib, sandboxed paths', cost: 'Free', why: 'Sandbox limits blast radius of a misunderstood command.' },
+  { layer: 3, x: 5.5, label: 'CAL', name: 'Calendar + Reminders', does: 'Reads your day, creates events and todos from speech.', tech: 'macOS Calendar / Reminders via permissions you approved', cost: 'Free', why: 'Feeds the timetable engine with ground truth.' },
+];
+
+/* ============================== SCENE ============================== */
+const container = document.getElementById('scene');
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x020608, 0.028);
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 200);
+camera.position.set(16, 12, 20);
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+container.appendChild(renderer.domElement);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.target.set(0, 2, 0);
+controls.maxPolarAngle = Math.PI * 0.52;
+
+scene.add(new THREE.AmbientLight(0x88aacc, 0.5));
+const key = new THREE.DirectionalLight(0xbfe9ff, 1.1); key.position.set(10, 18, 8); scene.add(key);
+const rim = new THREE.DirectionalLight(0x3f7fff, 0.5); rim.position.set(-12, 6, -10); scene.add(rim);
+
+/* grid floor */
+const grid = new THREE.GridHelper(46, 46, 0x1a4a63, 0x0a2230);
+grid.position.y = -7.2; grid.material.transparent = true; grid.material.opacity = 0.5;
+scene.add(grid);
+
+/* text sprite helper */
+function makeLabel(text, color = '#9fdcff', size = 44, glow = true) {
+  const c = document.createElement('canvas');
+  const ctx = c.getContext('2d');
+  ctx.font = `600 ${size}px "SF Mono", Consolas, monospace`;
+  const w = Math.ceil(ctx.measureText(text).width) + 40;
+  c.width = w; c.height = size + 36;
+  const g = c.getContext('2d');
+  g.font = `600 ${size}px "SF Mono", Consolas, monospace`;
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  if (glow) { g.shadowColor = color; g.shadowBlur = 18; }
+  g.fillStyle = color;
+  g.fillText(text, w / 2, (size + 36) / 2);
+  const tex = new THREE.CanvasTexture(c);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+  const spr = new THREE.Sprite(mat);
+  spr.scale.set(w / 110, (size + 36) / 110, 1);
+  return spr;
+}
+
+/* layers + modules */
+const clickTargets = [];
+const moduleMeshes = {};
+LAYERS.forEach((L, li) => {
+  // platform slab
+  const slab = new THREE.Mesh(
+    new THREE.BoxGeometry(19, 0.12, 5.4),
+    new THREE.MeshBasicMaterial({ color: L.color, transparent: true, opacity: 0.07 })
+  );
+  slab.position.y = L.y;
+  scene.add(slab);
+  const edge = new THREE.LineSegments(
+    new THREE.EdgesGeometry(slab.geometry),
+    new THREE.LineBasicMaterial({ color: L.color, transparent: true, opacity: 0.55 })
+  );
+  edge.position.copy(slab.position);
+  scene.add(edge);
+  // layer label left
+  const lab = makeLabel(L.name, '#cfeeff', 40);
+  lab.position.set(-11.6, L.y + 0.9, 0);
+  scene.add(lab);
+  const sub = makeLabel(L.sub, '#4a7a94', 30, false);
+  sub.position.set(-11.6, L.y + 0.15, 0);
+  scene.add(sub);
+});
+
+MODULES.forEach((m, i) => {
+  const L = LAYERS[m.layer];
+  const col = new THREE.Color(L.color);
+  const geo = new THREE.BoxGeometry(2.5, 1.5, 2.5);
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+    color: 0x06121c, metalness: 0.7, roughness: 0.35,
+    emissive: col, emissiveIntensity: 0.14, transparent: true, opacity: 0.96
+  }));
+  mesh.position.set(m.x, L.y + 1.05, 0);
+  mesh.userData.module = m;
+  scene.add(mesh);
+  const edge = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geo),
+    new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.9 })
+  );
+  edge.position.copy(mesh.position);
+  scene.add(edge);
+  const lab = makeLabel(m.label, '#eaf7ff', 46);
+  lab.position.set(m.x, L.y + 2.35, 0);
+  scene.add(lab);
+  clickTargets.push(mesh);
+  moduleMeshes[i] = { mesh, edge, base: 0.14 };
+  // gentle float
+  mesh.userData.phase = Math.random() * Math.PI * 2;
+});
+
+/* command-flow path: mic -> wake -> stt -> brain -> skills -> system -> hud */
+const flowOrder = ['WAKE', 'STT', 'LLM', 'SKILLS', 'SYSTEM', 'HUD'];
+const flowPts = flowOrder.map(l => {
+  const m = MODULES.find(x => x.label === l);
+  const L = LAYERS[m.layer];
+  return new THREE.Vector3(m.x, L.y + 1.05, 0);
+});
+const curve = new THREE.CatmullRomCurve3(flowPts);
+const flowLine = new THREE.Line(
+  new THREE.BufferGeometry().setFromPoints(curve.getPoints(120)),
+  new THREE.LineBasicMaterial({ color: 0x54d8ff, transparent: true, opacity: 0.28 })
+);
+scene.add(flowLine);
+
+/* pulses travelling the flow */
+const pulses = [];
+for (let i = 0; i < 5; i++) {
+  const p = new THREE.Mesh(
+    new THREE.SphereGeometry(0.16, 16, 16),
+    new THREE.MeshBasicMaterial({ color: 0x9fe8ff })
+  );
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: (() => { const c = document.createElement('canvas'); c.width = c.height = 64;
+      const g = c.getContext('2d'); const gr = g.createRadialGradient(32,32,2,32,32,30);
+      gr.addColorStop(0,'rgba(140,220,255,0.9)'); gr.addColorStop(1,'rgba(140,220,255,0)');
+      g.fillStyle = gr; g.fillRect(0,0,64,64); return new THREE.CanvasTexture(c); })(),
+    transparent: true, depthWrite: false
+  }));
+  halo.scale.set(1.4, 1.4, 1);
+  p.add(halo);
+  p.userData.t = i / 5;
+  scene.add(p);
+  pulses.push(p);
+}
+
+/* central reactor column */
+const column = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.05, 0.05, 17, 12),
+  new THREE.MeshBasicMaterial({ color: 0x54d8ff, transparent: true, opacity: 0.35 })
+);
+column.position.set(8.6, 2.2, -2.6);
+scene.add(column);
+
+/* ============================== INTERACTION ============================== */
+const ray = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const panel = document.getElementById('panel');
+let selected = null;
+
+function showPanel(m) {
+  document.getElementById('p-layer').textContent = LAYERS[m.layer].name;
+  document.getElementById('p-name').textContent = m.name;
+  document.getElementById('p-does').textContent = m.does;
+  document.getElementById('p-tech').textContent = m.tech;
+  document.getElementById('p-cost').textContent = m.cost + ' — nothing paid, ever';
+  document.getElementById('p-why').textContent = m.why;
+  panel.classList.add('visible');
+}
+document.getElementById('close').onclick = () => { panel.classList.remove('visible'); selected = null; };
+
+addEventListener('pointerdown', e => {
+  if (e.target.closest('#panel')) return;
+  mouse.x = (e.clientX / innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / innerHeight) * 2 + 1;
+  ray.setFromCamera(mouse, camera);
+  const hit = ray.intersectObjects(clickTargets)[0];
+  if (hit) { selected = hit.object; showPanel(hit.object.userData.module); }
+});
+addEventListener('pointermove', e => {
+  mouse.x = (e.clientX / innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / innerHeight) * 2 + 1;
+  ray.setFromCamera(mouse, camera);
+  document.body.style.cursor = ray.intersectObjects(clickTargets).length ? 'pointer' : 'default';
+});
+
+/* ============================== LOOP ============================== */
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+  // float modules
+  Object.values(moduleMeshes).forEach((o, i) => {
+    o.mesh.position.y += Math.sin(t * 1.2 + o.mesh.userData.phase) * 0.0016;
+    const isSel = selected === o.mesh;
+    o.mesh.material.emissiveIntensity += ((isSel ? 0.55 : o.base) - o.mesh.material.emissiveIntensity) * 0.12;
+  });
+  // pulses along command flow
+  pulses.forEach(p => {
+    p.userData.t = (p.userData.t + 0.0016) % 1;
+    const pos = curve.getPointAt(p.userData.t);
+    p.position.copy(pos);
+    const s = 1 + Math.sin(t * 6 + p.userData.t * 20) * 0.25;
+    p.scale.set(s, s, s);
+  });
+  flowLine.material.opacity = 0.22 + Math.sin(t * 2) * 0.08;
+  column.material.opacity = 0.28 + Math.sin(t * 3) * 0.1;
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>

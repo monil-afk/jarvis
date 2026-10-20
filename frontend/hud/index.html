@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JARVIS</title>
+<link rel="stylesheet" href="/static/hud.css">
+</head>
+<body>
+<!-- Scanline overlay for the holographic lab feel -->
+<div class="scanlines"></div>
+<div class="vignette"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span class="brand-name">JARVIS</span>
+  </div>
+  <div class="topbar-status">
+    <span id="sys-time" class="mono">--:--:--</span>
+    <span class="sep">|</span>
+    <span id="conn-dot" class="dot idle"></span>
+    <span id="conn-label" class="mono">OFFLINE</span>
+  </div>
+</header>
+
+<main class="grid">
+  <!-- LEFT: system -->
+  <section class="panel" id="panel-sys">
+    <h2>SYSTEM</h2>
+    <div class="stat"><label>CPU</label><div class="bar"><div id="cpu-bar" class="fill"></div></div><span id="cpu-val" class="mono">--%</span></div>
+    <div class="stat"><label>MEM</label><div class="bar"><div id="mem-bar" class="fill"></div></div><span id="mem-val" class="mono">--%</span></div>
+    <div class="stat"><label>MIC</label><div class="bar"><div id="mic-bar" class="fill mic"></div></div><span id="mic-val" class="mono">--%</span></div>
+    <div class="stat-row">
+      <div><label>STT</label><span id="stt-engine" class="mono val">mlx-whisper</span></div>
+      <div><label>BRAIN</label><span id="llm-engine" class="mono val">llama3.2:3b</span></div>
+    </div>
+  </section>
+
+  <!-- CENTER: reactor core -->
+  <section class="core-wrap">
+    <div id="core" class="core idle">
+      <div class="core-ring r1"></div>
+      <div class="core-ring r2"></div>
+      <div class="core-ring r3"></div>
+      <div class="core-center"></div>
+      <canvas id="waveform" width="520" height="120"></canvas>
+    </div>
+    <div id="core-label" class="mono">IDLE — SAY "JARVIS, …"</div>
+    <div id="transcript" class="transcript mono"></div>
+  </section>
+
+  <!-- RIGHT: timetable -->
+  <section class="panel" id="panel-day">
+    <h2>TIMETABLE</h2>
+    <div id="timetable" class="timetable">
+      <div class="t-empty mono">No events scheduled.</div>
+    </div>
+    <h2 class="mt">UP NEXT</h2>
+    <div id="upnext" class="mono upnext">—</div>
+  </section>
+
+  <!-- BOTTOM: activity log -->
+  <section class="panel log-panel">
+    <h2>ACTIVITY LOG</h2>
+    <div id="log" class="log mono"></div>
+  </section>
+</main>
+
+<script src="/static/hud.js"></script>
+</body>
+</html>

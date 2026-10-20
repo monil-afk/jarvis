@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JARVIS — System Architecture & Tech Stack</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #02070c; color: #c8ecff; font-family: "SF Mono", Consolas, monospace; padding: 32px; }
+  h1 { font-size: 26px; letter-spacing: 6px; color: #7fdcff; text-shadow: 0 0 20px rgba(80,200,255,.6); margin-bottom: 6px; }
+  .subtitle { color: #5b8ba3; font-size: 12px; letter-spacing: 2px; margin-bottom: 32px; }
+  .flow { display: flex; flex-direction: column; gap: 0; max-width: 900px; margin: 0 auto; }
+  .layer { border: 1px solid rgba(84,216,255,.25); border-radius: 8px; padding: 20px; margin-bottom: 8px;
+    background: rgba(6,20,30,.6); position: relative; }
+  .layer-tag { position: absolute; top: -11px; left: 18px; background: #02070c; padding: 0 10px;
+    font-size: 10px; letter-spacing: 3px; }
+  .modules { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; }
+  .mod { flex: 1; min-width: 180px; border: 1px solid rgba(84,216,255,.2); border-radius: 6px;
+    padding: 14px; background: rgba(10,30,44,.5); }
+  .mod h3 { font-size: 13px; color: #eaf7ff; margin-bottom: 6px; letter-spacing: 1px; }
+  .mod p { font-size: 11px; color: #8fb8cc; line-height: 1.6; margin-bottom: 8px; }
+  .tech { display: inline-block; font-size: 10px; background: rgba(84,216,255,.12);
+    border: 1px solid rgba(84,216,255,.3); border-radius: 3px; padding: 3px 8px;
+    color: #7fdcff; margin: 2px 4px 2px 0; }
+  .free { display: inline-block; font-size: 10px; color: #7dffb0; margin-left: 6px; }
+  .arrow { text-align: center; font-size: 22px; color: #54d8ff; margin: 2px 0;
+    text-shadow: 0 0 12px rgba(84,216,255,.6); }
+  .arrow small { display: block; font-size: 10px; color: #5b8ba3; letter-spacing: 2px; margin-top: 2px; }
+  .c-interface .layer-tag { color: #ffc46b; } .c-interface { border-color: rgba(255,196,107,.3); }
+  .c-voice .layer-tag { color: #54d8ff; }
+  .c-brain .layer-tag { color: #b78cff; } .c-brain { border-color: rgba(183,140,255,.3); }
+  .c-skills .layer-tag { color: #7dffb0; } .c-skills { border-color: rgba(125,255,176,.3); }
+  .stack-table { max-width: 900px; margin: 32px auto 0; border: 1px solid rgba(84,216,255,.2);
+    border-radius: 8px; overflow: hidden; }
+  .stack-table h2 { padding: 16px 20px; font-size: 13px; letter-spacing: 4px; color: #7fdcff;
+    border-bottom: 1px solid rgba(84,216,255,.2); }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; padding: 10px 20px; color: #5b8ba3; font-size: 10px; letter-spacing: 2px;
+    border-bottom: 1px solid rgba(84,216,255,.15); }
+  td { padding: 10px 20px; border-bottom: 1px solid rgba(84,216,255,.07); color: #b9dcec; }
+  td:first-child { color: #eaf7ff; }
+  .cost { color: #7dffb0; }
+  @media (max-width: 700px) { .mod { min-width: 100%; } }
+</style>
+</head>
+<body>
+<h1>JARVIS</h1>
+<div class="subtitle">SYSTEM ARCHITECTURE &amp; TECH STACK — 100% LOCAL — $0 FOREVER</div>
+
+<div class="flow">
+  <!-- LAYER 1 -->
+  <div class="layer c-interface">
+    <span class="layer-tag">LAYER 1 — INTERFACE</span>
+    <div class="modules">
+      <div class="mod">
+        <h3>Holographic HUD</h3>
+        <p>Iron-Man-lab UI from your photo. Arc-reactor core pulses by state. Panels for stats, timetable, activity log.</p>
+        <span class="tech">HTML + CSS + JS</span><span class="tech">localhost:8765</span><span class="free">$0</span>
+      </div>
+      <div class="mod">
+        <h3>Voice Output</h3>
+        <p>Speaks in the Magnus voice — British, deep, film-JARVIS register.</p>
+        <span class="tech">macOS `say`</span><span class="tech">Daniel voice</span><span class="free">$0</span>
+      </div>
+    </div>
+  </div>
+  <div class="arrow">▲<small>WEBSOCKET — LIVE STATUS</small></div>
+
+  <!-- LAYER 2 -->
+  <div class="layer c-voice">
+    <span class="layer-tag">LAYER 2 — VOICE PIPELINE</span>
+    <div class="modules">
+      <div class="mod">
+        <h3>Wake Word</h3>
+        <p>Always listening for "jarvis". ~1% CPU. Everything else sleeps until triggered.</p>
+        <span class="tech">openWakeWord</span><span class="tech">~50MB model</span><span class="free">$0</span>
+      </div>
+      <div class="mod">
+        <h3>Speech → Text</h3>
+        <p>Transcribes your command in ~1 second. Apple-Silicon optimized.</p>
+        <span class="tech">mlx-whisper</span><span class="tech">fallback: faster-whisper</span><span class="free">$0</span>
+      </div>
+      <div class="mod">
+        <h3>Voice Activity</h3>
+        <p>Detects speech start/stop. No dead air, no cut-off words.</p>
+        <span class="tech">Silero VAD</span><span class="free">$0</span>
+      </div>
+    </div>
+  </div>
+  <div class="arrow">▲<small>TEXT COMMAND</small></div>
+
+  <!-- LAYER 3 -->
+  <div class="layer c-brain">
+    <span class="layer-tag">LAYER 3 — BRAIN</span>
+    <div class="modules">
+      <div class="mod">
+        <h3>Ollama LLM</h3>
+        <p>Understands plain English, picks skills, holds conversation. The "brain of its own".</p>
+        <span class="tech">Ollama</span><span class="tech">llama3.2:3b</span><span class="tech">~2GB</span><span class="free">$0</span>
+      </div>
+      <div class="mod">
+        <h3>Memory</h3>
+        <p>Your profile, timetable, every command + correction. This is how it "knows you".</p>
+        <span class="tech">SQLite</span><span class="tech">0600 permissions</span><span class="free">$0</span>
+      </div>
+      <div class="mod">
+        <h3>Security Gates</h3>
+        <p>Every skill permission-checked. Destructive actions ask first. Full audit log.</p>
+        <span class="tech">Python gates</span><span class="tech">default-deny</span><span class="free">$0</span>
+      </div>
+      <div class="mod">
+        <h3>Timetable Engine</h3>
+        <p>Morning briefings, "standup in 10 min" alerts. The proactive part.</p>
+        <span class="tech">Python</span><span class="tech">jarvis.yaml</span><span class="free">$0</span>
+      </div>
+    </div>
+  </div>
+  <div class="arrow">▲<small>APPROVED ACTIONS ONLY</small></div>
+
+  <!-- LAYER 4 -->
+  <div class="layer c-skills">
+    <span class="layer-tag">LAYER 4 — SKILLS &amp; macOS</span>
+    <div class="modules">
+      <div class="mod">
+        <h3>System</h3>
+        <p>Volume, brightness, sleep, lock, screenshots.</p>
+        <span class="tech">AppleScript</span><span class="free">$0</span>
+      </div>
+      <div class="mod">
+        <h3>Apps</h3>
+        <p>Open, quit, focus any app by voice.</p>
+        <span class="tech">AppleScript</span><span class="free">$0</span>
+      </div>
+      <div class="mod">
+        <h3>Files</h3>
+        <p>Find, open, organize. Sandboxed to Documents/Downloads/Desktop. Trash, never delete.</p>
+        <span class="tech">Python pathlib</span><span class="free">$0</span>
+      </div>
+      <div class="mod">
+        <h3>Calendar</h3>
+        <p>Read today's events, create events and reminders by voice.</p>
+        <span class="tech">EventKit</span><span class="free">$0</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="stack-table">
+  <h2>COMPLETE TECH STACK</h2>
+  <table>
+    <tr><th>COMPONENT</th><th>TECHNOLOGY</th><th>SIZE</th><th>COST</th></tr>
+    <tr><td>Wake word</td><td>openWakeWord ("jarvis" model)</td><td>~50 MB</td><td class="cost">Free</td></tr>
+    <tr><td>Speech → Text</td><td>mlx-whisper (Apple Silicon) / faster-whisper tiny.en (fallback)</td><td>~150 MB</td><td class="cost">Free</td></tr>
+    <tr><td>Text → Speech</td><td>macOS <code>say</code> — Daniel (British) voice</td><td>Built-in</td><td class="cost">Free</td></tr>
+    <tr><td>LLM Brain</td><td>Ollama + llama3.2:3b with tool calling</td><td>~2 GB</td><td class="cost">Free</td></tr>
+    <tr><td>Memory</td><td>SQLite (single local file, 0600 perms)</td><td>~1 MB</td><td class="cost">Free</td></tr>
+    <tr><td>Backend server</td><td>FastAPI + WebSocket (127.0.0.1 only)</td><td>~5 MB</td><td class="cost">Free</td></tr>
+    <tr><td>Frontend HUD</td><td>HTML + CSS + JS (no framework)</td><td>~50 KB</td><td class="cost">Free</td></tr>
+    <tr><td>System control</td><td>AppleScript via macOS Accessibility</td><td>Built-in</td><td class="cost">Free</td></tr>
+    <tr><td>Config</td><td>YAML (jarvis.yaml — plain text, yours)</td><td>~1 KB</td><td class="cost">Free</td></tr>
+    <tr><td><strong>Total</strong></td><td></td><td><strong>~2.5 GB</strong></td><td class="cost"><strong>$0</strong></td></tr>
+  </table>
+</div>
+</body>
+</html>

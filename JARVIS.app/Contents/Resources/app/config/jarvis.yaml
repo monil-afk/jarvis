@@ -1,0 +1,43 @@
+# JARVIS user profile — plain text, yours, never leaves your Mac.
+# Edit freely. The timetable engine and memory read this file.
+
+name: "sir"              # what JARVIS calls you
+timezone: "Asia/Calcutta"
+
+# Recurring day structure — the "brain that knows your day" starts here.
+# Times in 24h, your local timezone.
+timetable:
+  work_start: "09:30"
+  standups:
+    - { name: "Lungoor Voice standup",  time: "11:00" }
+    - { name: "Lungoor Notes standup",  time: "11:30" }
+    - { name: "Edquest standup",        time: "12:00" }
+
+# Voice preferences
+voice:
+  tts_voice: "Daniel"    # macOS British voice — film-JARVIS register
+  tts_rate: 170          # words per minute; 170 = calm, deliberate
+  wake_word: "jarvis"
+  # whisper = say "Jarvis, <command>" in one breath (recognised on this Mac,
+  #           nothing stored).  openwakeword = older "Hey Jarvis" model.
+  wake_engine: "whisper"
+  wake_sensitivity: 0.5  # openwakeword only: 0.3 = easier, 0.7 = stricter
+  end_of_speech_seconds: 0.8  # pause that means "I'm done talking"
+  follow_up_seconds: 6   # after a reply, keep listening this long (0 = off)
+  chimes: true           # soft sound when JARVIS starts / stops listening
+
+# The brain (a free local model via Ollama). llama3.2:3b is small and fast.
+# For a noticeably smarter JARVIS, change to qwen2.5:7b (about 4.7 GB,
+# downloaded automatically on the next launch).
+brain:
+  model: "llama3.2:3b"
+
+# Behavior
+behavior:
+  confirm_destructive: true   # always ask before delete/send/quit-all
+  proactive_briefing: true     # morning summary without being asked
+  address_as: "sir"            # or your name — your call
+
+# Screen
+hud:
+  widget: true                 # small always-on-top status card (top-right)

@@ -1,0 +1,14 @@
+# JARVIS voice-loop dependencies (Feature 1)
+# All free, all local. No cloud APIs, no keys, no accounts.
+# Pinned for Python 3.12 (onnxruntime has no 3.13 wheels — see install.sh).
+sounddevice>=0.4.6,<0.5   # mic input — needs PortAudio (brew installs it)
+numpy>=1.26,<2.0          # audio math (2.x breaks onnxruntime 1.x)
+onnxruntime>=1.17,<2      # wake-word inference engine (explicit pin)
+openwakeword>=0.6.0       # "jarvis" wake word, on-device
+mlx-whisper>=0.4.0; sys_platform == "darwin"  # Apple-Silicon STT (M-series)
+faster-whisper>=1.0.0     # CPU fallback STT (Intel Macs)
+fastapi>=0.104.0          # HUD backend server (localhost only)
+uvicorn>=0.24.0           # ASGI server for the HUD
+pywebview>=4.4            # native macOS window (Cocoa/WKWebView) — real app, not browser
+pyyaml>=6.0               # config file parsing
+ddgs>=9.0                 # free web search (no API key) so JARVIS can look things up
