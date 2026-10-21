@@ -26,11 +26,12 @@ voice:
   follow_up_seconds: 6   # after a reply, keep listening this long (0 = off)
   chimes: true           # soft sound when JARVIS starts / stops listening
 
-# The brain (a free local model via Ollama). llama3.2:3b is small and fast.
-# For a noticeably smarter JARVIS, change to qwen2.5:7b (about 4.7 GB,
-# downloaded automatically on the next launch).
+# The brain (a free local model via Ollama).
+# qwen3:8b (~5 GB, needs 16 GB RAM) picks the right action most reliably.
+# On an 8 GB Mac use "llama3.2:3b" (~2 GB). Both are free and run locally;
+# a new model is downloaded automatically on the next launch.
 brain:
-  model: "qwen3:8b"         # smarter tool use than llama3.2:3b (fits 16 GB)
+  model: "qwen3:8b"
 
 # Behavior
 behavior:

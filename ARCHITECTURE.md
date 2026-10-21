@@ -20,20 +20,22 @@ The HUD is a single local web page served on `localhost`, styled to match.
 ├── backend/
 │   ├── server.py          # FastAPI + WebSocket, binds 127.0.0.1 ONLY (never 0.0.0.0)
 │   ├── core/
-│   │   ├── brain.py       # Ollama chat orchestration, tool-calling loop
-│   │   ├── memory.py      # SQLite: profile, timetable, prefs, command history
-│   │   ├── skills.py      # Skill registry — every action is a registered skill
+│   │   ├── brain.py       # step splitter, fast-path router, Ollama tool-calling loop
+│   │   ├── memory.py      # SQLite: facts, aliases, usage patterns, command history
 │   │   └── security.py    # Permission gates + audit log (see Security below)
 │   ├── voice/
-│   │   ├── wake.py        # openWakeWord, listens for "jarvis" (~50MB model, local)
+│   │   ├── loop.py        # standby → "Jarvis, …" → command → follow-ups
+│   │   ├── wake.py        # optional openWakeWord engine ("hey jarvis")
 │   │   ├── stt.py         # mlx-whisper (Apple Silicon) or faster-whisper tiny.en
 │   │   └── tts.py         # macOS `say` — built-in, offline, free
+│   ├── native_app.py      # app window + floating widget (shown only while awake)
 │   └── skills/
-│       ├── system.py      # volume, brightness, sleep, lock, screenshot
-│       ├── apps.py        # open / quit / focus apps
-│       ├── files.py       # find, open, move files (sandboxed to allowed dirs)
-│       ├── calendar_.py   # read/create calendar events
-│       ├── reminders.py   # todos
+│       ├── registry.py    # the single list of skills the brain may call
+│       ├── smart.py       # open_anything, Spotlight file search, remember, what-you-know
+│       ├── system.py      # apps (fuzzy-matched to installed apps), volume, timers, notes, lock/sleep
+│       ├── files.py       # move / delete files (sandboxed to allowed dirs)
+│       ├── calendar_.py   # calendar events + reminders
+│       ├── web.py         # web answers, weather, open websites
 │       └── timetable.py   # the "brain that knows your day"
 ├── frontend/hud/
 │   ├── index.html         # the holographic HUD
@@ -48,10 +50,11 @@ The HUD is a single local web page served on `localhost`, styled to match.
 
 | Part | Choice | Why | Cost |
 |------|--------|-----|------|
-| Wake word | openWakeWord ("jarvis") | Local, ~1% CPU, no cloud | Free |
-| Speech→text | mlx-whisper (tiny/base) | Apple-Silicon optimized, ~1s latency | Free |
+| Wake word | Whisper transcript starts with "Jarvis" (default) or openWakeWord | One breath: "Jarvis, open X"; no separate model to mishear | Free |
+| Speech→text | mlx-whisper tiny.en + vocabulary prompt | Apple-Silicon optimized; prompt includes "Jarvis" and your installed app names | Free |
 | Text→speech | macOS `say` | Built-in, offline voices | Free |
-| Brain (LLM) | Ollama + llama3.2:3b (or qwen2.5:3b) | Local, ~2GB, good tool-calling | Free |
+| Brain (LLM) | Ollama + qwen3:8b (Apache-2.0; llama3.2:3b for 8 GB Macs) | Local, ~5GB, reliable tool-calling | Free |
+| File search | Spotlight (`mdfind`) | Instant, already indexed by macOS | Free |
 | Memory | SQLite | Zero-dependency, local file | Free |
 | HUD | HTML/CSS/JS on localhost | No framework, instant load | Free |
 | Server | FastAPI + WebSocket | Localhost-only binding | Free |
@@ -61,21 +64,48 @@ Fallback: if mlx-whisper misbehaves, faster-whisper `tiny.en` (CPU, ~75MB).
 ## How a command flows
 
 ```
-"jarvis" → wake.py detects → HUD core pulses → mic records →
-stt.py transcribes → brain.py (Ollama + skills + memory) decides →
-skill executes (gated by security.py) → tts.py speaks result →
-HUD panels update → everything logged to SQLite audit trail
+mic → utterance → stt.py → starts with "Jarvis"?  (no → discarded, never logged)
+    → widget appears → brain.split_steps(): "open X and then open Y" → [X, Y]
+    → for each step:
+        alias? ("my deck" → "Q3 plan.pdf")
+        route(): regex fast path for obvious commands (instant)
+        else Ollama with ~8 relevant tools + context (front app, last opened,
+             habits at this hour, recent files, facts, shortcuts)
+    → skill executes (gated by security.py) → usage recorded → tts.py speaks
+    → listens for follow-ups (no wake word) → "that's it"/silence → widget hides
 ```
 
-Latency target: wake→response under 3 seconds on M-series.
+Latency: fast-path commands act in well under a second after transcription;
+brain decisions ~2 s once the model is loaded (~10 s for the first one).
+
+### open_anything — how "open X" is resolved
+
+1. Your shortcuts (`remember that X means Y`)
+2. "it" / "that" / "again" → the last thing opened
+3. "latest download" / "any file" → newest download / last file you used
+4. An installed app (exact, prefix or fuzzy match: "grinnola" → Granola)
+5. A file anywhere in `~` via Spotlight (never `~/Library` or hidden files),
+   ranked by name match + **how often and how recently you opened it** + freshness
+6. A website ("youtube", "something.com")
+
+`"open X in Y"` opens the file with app Y.
 
 ## The "brain that knows you"
 
 `config/jarvis.yaml` holds your profile: name, timezone, work hours,
 standup times, recurring timetable. `timetable.py` reads it + your Mac
 calendar and proactively surfaces what's next ("standup in 10 minutes").
-Memory grows: every command and correction is stored, so it learns
-phrasing you use. Nothing leaves the machine.
+
+`memory.py` learns as you go (SQLite, `~/jarvis/data/jarvis.db`):
+
+| Table | What | Used for |
+|---|---|---|
+| `usage` | every app/file/site opened: count, last time, 24-hour histogram | ranking file matches, "you usually open X now" |
+| `aliases` | "my deck" → "Q3 plan.pdf" | personal shortcuts |
+| `facts` | "my manager is Priya" | context for every answer |
+| `history` | every command + result | audit trail |
+
+Nothing leaves the machine.
 
 ## Security (every rule gets a code comment citing its reason)
 
@@ -84,15 +114,22 @@ phrasing you use. Nothing leaves the machine.
 2. **Skill permission gates** — every skill declares `requires_permission`;
    `security.py` blocks unapproved skills and asks first.
    Reason: a voice mis-hear must never delete files or send messages.
-3. **Destructive-action confirmation** — delete/send/quit-all always ask aloud.
-   Reason: voice is error-prone; irreversible actions need a yes.
-4. **Sandboxed file access** — file skills only touch allowed directories
-   (~/Documents, ~/Downloads, ~/Desktop by default).
+3. **Destructive-action confirmation** — delete/move files, send messages or
+   email, quit-all and Shortcuts always ask aloud. Small reversible actions
+   (open/quit an app, reminders, events, lock, sleep) run without asking.
+   Reason: voice is error-prone; irreversible actions need a yes, but asking
+   about everything made everyday use painful.
+4. **Sandboxed file changes** — move/delete only touch ~/Documents,
+   ~/Downloads, ~/Desktop. Opening/searching (read-only) covers ~ via
+   Spotlight, excluding ~/Library and hidden files.
    Reason: limits blast radius of a misunderstood command.
 5. **Audit log** — every action + timestamp + result in SQLite.
    Reason: you can always see what JARVIS did and why.
-6. **No network calls by default** — brain, STT, TTS all offline.
+6. **No network calls by default** — brain, STT, TTS, memory all offline.
+   Web answers/weather only when you ask; the launcher checks GitHub for updates.
    Reason: privacy; also works on a plane.
+8. **Speech not addressed to JARVIS is discarded** — utterances that don't
+   start with "Jarvis" are dropped immediately, never stored or logged.
 7. **Secrets never in code** — config holds only non-secret prefs.
    Reason: nothing to leak if you share the code.
 
@@ -105,5 +142,7 @@ phrasing you use. Nothing leaves the machine.
 - **F5 — Timetable brain**: proactive day briefing from config + calendar.
 - **F6 — Calendar & reminders**: read/create events and todos by voice.
 - **F7 — File skills**: find/open/organize files by voice.
+- **F8 — Knows you (v1.1.0)**: open_anything, chained commands, usage patterns,
+  shortcuts and facts, qwen3 brain, wake-only draggable widget.
 
 Each feature ships, you test it, then we move on. Nothing half-built piles up.

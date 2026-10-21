@@ -47,8 +47,10 @@ echo "[5/6] Installing Python packages (this takes a few minutes)..."
 pip install --upgrade "pip<25"  # pip 25+ drops 3.12-era wheel tags we need
 pip install -r "$(dirname "$0")/backend/requirements.txt"
 
-# 6. Start Ollama + pull the LLM brain (~2GB, one-time, then 100% offline)
-echo "[6/6] Starting Ollama and pulling local LLM (llama3.2:3b)..."
+# 6. Start Ollama + pull the LLM brain (~5GB, one-time, then 100% offline).
+#    qwen3:8b is free (Apache-2.0). On an 8 GB Mac, set brain: model:
+#    "llama3.2:3b" in config/jarvis.yaml instead.
+echo "[6/6] Starting Ollama and pulling local LLM (qwen3:8b)..."
 if ! curl -sf -o /dev/null http://127.0.0.1:11434/api/tags 2>/dev/null; then
   echo "    Starting ollama serve in background..."
   nohup ollama serve > /tmp/ollama.log 2>&1 &
@@ -57,7 +59,7 @@ if ! curl -sf -o /dev/null http://127.0.0.1:11434/api/tags 2>/dev/null; then
     sleep 1
   done
 fi
-ollama pull llama3.2:3b || echo "Ollama pull failed — run 'ollama pull llama3.2:3b' manually later."
+ollama pull qwen3:8b || echo "Ollama pull failed — run 'ollama pull qwen3:8b' manually later."
 
 # Wake-word model files (~4 MB, one time). openWakeWord's pip package
 # doesn't include them. Non-fatal: the voice loop retries on its own.
