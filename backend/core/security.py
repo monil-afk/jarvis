@@ -57,18 +57,21 @@ SKILL_LEVELS = {
     "set_brightness": Level.SAFE,
     "open_app": Level.SAFE,
     "focus_app": Level.SAFE,
-    # state-changing, ask first
-    "quit_app": Level.CONFIRM,
+    # Small, easily undone actions. Asking "Shall I go ahead?" before each
+    # one made everyday commands painful; macOS itself still asks to save
+    # unsaved work when an app quits.
+    "quit_app": Level.SAFE,
+    "create_event": Level.SAFE,
+    "add_reminder": Level.SAFE,
+    "sleep_mac": Level.SAFE,
+    "lock_mac": Level.SAFE,
+    # Destructive, outward-facing or open-ended — always ask first
     "quit_all_apps": Level.CONFIRM,
     "delete_file": Level.CONFIRM,
     "move_file": Level.CONFIRM,
     "send_message": Level.CONFIRM,
     "send_email": Level.CONFIRM,
-    "create_event": Level.CONFIRM,
-    "add_reminder": Level.CONFIRM,
     "run_shortcut": Level.CONFIRM,  # a shortcut can do anything — ask first
-    "sleep_mac": Level.CONFIRM,
-    "lock_mac": Level.CONFIRM,
 }
 
 
