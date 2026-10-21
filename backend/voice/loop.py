@@ -48,7 +48,11 @@ MAX_RECORD_SECONDS = 30
 # After the wake word: wait up to this long for you to START talking...
 SPEECH_START_TIMEOUT = 6.0
 # ...then stop on this much silence.
-SILENCE_THRESHOLD = 0.015
+# Minimum loudness that counts as speech. The real bar adapts to the room:
+# 3x the background noise level. (A fixed 0.015 missed normal speech when
+# macOS mic input volume was low — e.g. after Zoom turned it down.)
+SILENCE_THRESHOLD = 0.006
+_NOISE = {"floor": 0.003}   # background noise level, learned across utterances
 # Widget shows "YOU" while you're talking; stays on this long through pauses.
 USER_TALK_HANG_S = 0.45
 WAKE_ACK = "Yes, sir."
@@ -159,6 +163,31 @@ def _single_instance():
     _lock_file.flush()
 
 
+def _input_volume():
+    try:
+        out = subprocess.run(["osascript", "-e", "input volume of (get volume settings)"],
+                             capture_output=True, text=True, timeout=5).stdout.strip()
+        return int(out) if out.isdigit() else None
+    except Exception:
+        return None
+
+
+def _watch_input_volume():
+    """Meeting apps (Zoom, Meet…) often turn the Mac's mic input down, and
+    then JARVIS can't hear you. Say so instead of failing silently."""
+    warned = False
+    while True:
+        vol = _input_volume()
+        if vol is not None and vol < 40:
+            if not warned:
+                log(f"Mic input volume is only {vol}% — I may not hear you. "
+                    "Raise it in System Settings › Sound › Input.", "warn")
+                warned = True
+        else:
+            warned = False
+        time.sleep(60)
+
+
 def _heartbeat():
     """Tell the HUD we're alive every few seconds (even mid-thought)."""
     while True:
@@ -182,7 +211,7 @@ def _capture(start_timeout=SPEECH_START_TIMEOUT, max_seconds=MAX_RECORD_SECONDS,
     pre = []                                   # rolling pre-roll before speech
     pre_max = max(1, int(PREROLL_SECONDS * SAMPLE_RATE / BLOCK))
     st = {"speech": False, "silent": 0, "last_lvl": 0.0, "talking": False, "last_loud": 0.0,
-          "floor": SILENCE_THRESHOLD / 2, "n": 0}
+          "floor": _NOISE["floor"], "n": 0}
     silent_needed = max(1, int(SILENCE_SECONDS * SAMPLE_RATE / BLOCK))
 
     def callback(indata, frame_count, time_info, status):
@@ -192,11 +221,12 @@ def _capture(start_timeout=SPEECH_START_TIMEOUT, max_seconds=MAX_RECORD_SECONDS,
         rms = float(np.sqrt(np.mean(block ** 2)))
         now = time.time()
         # Adaptive threshold: a noisy room raises the bar a little.
-        thresh = max(SILENCE_THRESHOLD, st["floor"] * 2.5)
+        thresh = max(SILENCE_THRESHOLD, st["floor"] * 3.0)
         loud = rms >= thresh
         if not st["speech"]:
             if not loud:
                 st["floor"] = 0.97 * st["floor"] + 0.03 * rms
+                _NOISE["floor"] = st["floor"]
             pre.append(block)
             del pre[:-pre_max]
             if loud:
@@ -382,6 +412,7 @@ def run_voice_loop(on_transcript=None):
     report(state="starting", voice_status="starting", log="Voice loop starting...")
     threading.Thread(target=_heartbeat, daemon=True).start()
     threading.Thread(target=_warm_up, daemon=True).start()
+    threading.Thread(target=_watch_input_volume, daemon=True).start()
 
     detector = _make_detector() if WAKE_ENGINE == "openwakeword" else None
     log("Online. Just say \"Jarvis, …\" — e.g. \"Jarvis, open Finder\".", "ok")

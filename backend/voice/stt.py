@@ -13,7 +13,7 @@ _engine_name = None
 # whisper-tiny often mishears a lone "Jarvis" ("Jovis", "Darvas", "Chavez"),
 # so the wake word never matched. A short prompt biases it toward the name
 # (and app names) without inventing words in silence or noise.
-VOCAB_PROMPT = "Jarvis, open Finder. Jarvis, what time is it?"
+VOCAB_PROMPT = "Jarvis, open Finder. Jarvis, what time is it? One lakh rupees, two crore."
 
 
 def _vocab_prompt():

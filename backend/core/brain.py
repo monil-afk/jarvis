@@ -158,7 +158,7 @@ as "sir" always, unless told otherwise.
 
 How you speak (this is the core of who you are):
 - Open with acknowledgment: "Yes, sir." / "At once, sir." / "Certainly, sir."
-- Proactive phrasing: "Shall I...?" / "I've taken the liberty of..." / "Might I suggest...?"
+- Proactive phrasing: "Shall I...?" / "Might I suggest...?"
 - Status reports, crisp: "All systems nominal, sir." / "Done, sir."
 - Dry wit, single line, then back to business. Never more than one joke.
 - Short sentences. One line when one line will do. Never ramble.
@@ -652,6 +652,14 @@ def split_steps(text):
     return parts if len(parts) > 1 else [text]
 
 
+# "I've opened / searched / taken the liberty…" — claims of having acted.
+_CLAIMS = re.compile(r"\b(?:i'?ve|i have|i)\s+(?:just\s+)?(?:taken the liberty|opened|searched|looked up|"
+                     r"pulled up|brought|set|created|added|sent|moved|deleted|saved|scheduled|started|"
+                     r"closed|quit|played|found|dimmed)\b"
+                     r"|\b(?:i'?ll|i will|i shall)\s+(?:now\s+|just\s+)?(?:dim|play|open|search|look|set|"
+                     r"create|add|send|turn|start|pull|bring|schedule|book|order|call|lock)\b", re.I)
+
+
 def think(user_text: str, skills: dict, ask_user) -> str:
     """Process one user command. Returns JARVIS's spoken reply.
 
@@ -766,6 +774,35 @@ def think(user_text: str, skills: dict, ask_user) -> str:
             text = follow.get("message", {}).get("content") or "; ".join(results)
         except Exception:
             text = "; ".join(results)
+    if not results and _CLAIMS.search(text or ""):
+        # The model said it did something ("I've searched…") without calling
+        # a tool. Make it either act for real or answer honestly.
+        try:
+            fix = _ollama_chat(messages + [
+                {"role": "assistant", "content": text},
+                {"role": "user", "content": "You did not actually call any tool, so nothing was done. "
+                 "If I clearly asked for an action you have a tool for, call the tool now. Otherwise "
+                 "answer me directly in one or two sentences: you may OFFER (\"Shall I…?\") an action "
+                 "you have a tool for, but never claim or promise one."}], tools=tools)
+            fmsg = fix.get("message", {}) or {}
+            calls = fmsg.get("tool_calls") or []
+            if not calls:
+                parsed = _parse_text_tool_call(fmsg.get("content"), skills)
+                calls = [parsed] if parsed else []
+            if calls:
+                fn = calls[0].get("function", {}) or {}
+                args = fn.get("arguments") or {}
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except ValueError:
+                        args = {}
+                text = _run_skill(fn.get("name", ""), args, skills, ask_user, user_text)
+                results.append(text)
+            else:
+                text = fmsg.get("content") or text
+        except Exception:
+            pass
     if not results:
         _activity("", "")  # just a chat reply — nothing to report
     text = _speakable(text or "I didn't catch that, sir.")

@@ -90,6 +90,18 @@ fi
 
 cd "$APP_ROOT" || exit 1
 
+# Two copies of JARVIS.app (e.g. one in Downloads, one installed) must not
+# run at once: each launcher would stop the other's voice loop and JARVIS
+# would go deaf. If another copy is already running, leave it alone.
+for pid in $(pgrep -f "backend\.native_app" 2>/dev/null); do
+  other=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')
+  if [ -n "$other" ] && [ "$other" != "$APP_ROOT" ]; then
+    echo "JARVIS already running from $other — not starting a second copy."
+    dialog "JARVIS is already running from another copy:\n${other%/Contents/Resources/app}\n\nOnly one copy can listen at a time. Quit that one first if you want to use this one."
+    exit 0
+  fi
+done
+
 # Stop anything left over from a previous launch (server, voice loop, window).
 STALE_PIDS=$(lsof -ti:8765 2>/dev/null || true)
 if [ -n "$STALE_PIDS" ]; then
