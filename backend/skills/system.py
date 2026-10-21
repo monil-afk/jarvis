@@ -70,22 +70,74 @@ APP_ALIASES = {
 }
 
 
+_APP_DIRS = ("/Applications", "/Applications/Utilities", "/System/Applications",
+             "/System/Applications/Utilities", str(Path.home() / "Applications"))
+_apps_cache = {"ts": 0.0, "names": []}
+
+
+def installed_apps() -> list:
+    """Names of the apps installed on this Mac (cached for 5 minutes)."""
+    import time
+    if time.time() - _apps_cache["ts"] > 300:
+        names = set()
+        for d in _APP_DIRS:
+            try:
+                names.update(p.stem for p in Path(d).glob("*.app"))
+            except OSError:
+                pass
+        _apps_cache.update(ts=time.time(), names=sorted(names))
+    return _apps_cache["names"]
+
+
+def _squash(s):
+    return "".join(c for c in s.lower() if c.isalnum())
+
+
+def _match_installed(key):
+    """Best installed app for what Whisper heard: "grinnola" → "Granola"."""
+    import difflib
+    apps = installed_apps()
+    sk = _squash(key)
+    if not sk:
+        return None
+    by_squash = {_squash(a): a for a in apps}
+    if sk in by_squash:
+        return by_squash[sk]
+    # "zoom" → "zoom.us", "lungoor voice" → "Lungoor Voice Preview"
+    starts = [a for s, a in by_squash.items() if s.startswith(sk) and len(sk) >= 3]
+    if len(starts) == 1:
+        return starts[0]
+    close = difflib.get_close_matches(sk, list(by_squash), n=1, cutoff=0.75)
+    return by_squash[close[0]] if close else None
+
+
 def _app_name(name) -> str:
     """Normalize a spoken app name. SECURITY: strip quotes, cap length."""
     raw = " ".join(str(name).replace('"', "").replace("'", "").strip(" .,!?").split())[:80]
     key = raw.lower()
+    for prefix in ("the ", "my "):
+        key = key.removeprefix(prefix)
     for suffix in (" app", " application"):
         if key.endswith(suffix):
             key = key[: -len(suffix)]
     if key in APP_ALIASES:
         return APP_ALIASES[key]
-    return " ".join(w[:1].upper() + w[1:] for w in key.split()) or raw
+    return _match_installed(key) or " ".join(w[:1].upper() + w[1:] for w in key.split()) or raw
 
 
 def _bring_to_front(app: str):
     """Best effort — opening already succeeded, so never fail because of this."""
     try:
         _osascript(f'tell application "{app}" to activate')
+    except Exception:
+        pass
+
+
+def _learn_app(app):
+    """Count this open (frequency + hour of day) so JARVIS learns your habits."""
+    try:
+        from . import smart
+        smart._remember("app", app, app)
     except Exception:
         pass
 
@@ -101,6 +153,7 @@ def open_app(name: str = "") -> str:
         # window on the home folder and bring it to the front instead.
         subprocess.run(["open", str(Path.home())], check=False, timeout=15)
         _bring_to_front("Finder")
+        _learn_app("Finder")
         return "Opened Finder."
     # SECURITY: `open -a NAME` — argv list, no shell, no AppleScript
     # interpolation. Unlike `tell application "X" to activate`, it never
@@ -114,6 +167,7 @@ def open_app(name: str = "") -> str:
         return f"I couldn't find an application called {app}, sir."
     # Bring it to the front even if it was already open in the background.
     _bring_to_front(app)
+    _learn_app(app)
     return f"Opened {app}."
 
 

@@ -10,6 +10,25 @@ import numpy as np
 _engine = None
 _engine_name = None
 
+# whisper-tiny often mishears a lone "Jarvis" ("Jovis", "Darvas", "Chavez"),
+# so the wake word never matched. A short prompt biases it toward the name
+# (and app names) without inventing words in silence or noise.
+VOCAB_PROMPT = "Jarvis, open Finder. Jarvis, what time is it?"
+
+
+def _vocab_prompt():
+    """Base prompt + the user's own apps (Granola, Slack…) so Whisper spells
+    them right. Only /Applications — system apps are common words already."""
+    from pathlib import Path
+    try:
+        apps = sorted(p.stem for p in Path("/Applications").glob("*.app"))[:40]
+    except OSError:
+        apps = []
+    return VOCAB_PROMPT + (" Apps: " + ", ".join(apps) + "." if apps else "")
+
+
+_prompt = None
+
 
 def _load_mlx():
     """Apple-Silicon optimized whisper. Preferred on M-series Macs."""
@@ -45,7 +64,9 @@ def transcribe(audio: np.ndarray, sample_rate: int = 16000) -> str:
     We never write recordings to disk — no audio files means
     nothing to leak later.
     """
-    global _engine
+    global _engine, _prompt
+    if _prompt is None:
+        _prompt = _vocab_prompt()
     if _engine is None:
         # Prefer Apple-Silicon path; fall back to CPU whisper.
         if not _load_mlx() and not _load_faster():
@@ -59,10 +80,12 @@ def transcribe(audio: np.ndarray, sample_rate: int = 16000) -> str:
     audio = np.asarray(audio, dtype=np.float32)[:max_len]
 
     if _engine_name == "mlx-whisper":
-        result = _engine.transcribe(audio, path_or_hf_repo="mlx-community/whisper-tiny.en-mlx")
+        result = _engine.transcribe(audio, path_or_hf_repo="mlx-community/whisper-tiny.en-mlx",
+                                    initial_prompt=_prompt, condition_on_previous_text=False)
         text = result.get("text", "")
     else:
-        segments, _ = _engine.transcribe(audio)
+        segments, _ = _engine.transcribe(audio, initial_prompt=_prompt,
+                                         condition_on_previous_text=False)
         text = " ".join(s.text for s in segments)
 
     # SECURITY: Strip control characters. Transcription output feeds

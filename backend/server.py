@@ -50,6 +50,7 @@ _current_state = {
     "activity_status": "",
     "activity_ts": 0.0,
     "task": "",          # one-line "what JARVIS is doing" for the orb widget caption
+    "awake": False,      # True from the wake word until the conversation ends (widget shows)
 }
 _voice_last_seen = 0.0
 _log = []        # [{"id": n, "ts": float, "msg": str, "level": str}]
@@ -248,6 +249,7 @@ async def api_state():
         snap["voice_online"] = voice_online
         if not voice_online and snap["state"] not in ("starting", "error"):
             snap["state"] = "starting" if _voice_last_seen == 0 else "error"
+            snap["awake"] = False
         snap["cpu"] = cpu
         snap["mem"] = mem
         snap["timetable"] = items
@@ -287,6 +289,9 @@ async def api_state_update(request: Request):
             _current_state["task"] = " ".join(tk.split())[:160]
         if "state" in data or "task" in data:
             _push_snapshot()
+        aw = data.get("awake")
+        if isinstance(aw, bool):
+            _current_state["awake"] = aw
         ut = data.get("user_talking")
         if isinstance(ut, bool):
             _current_state["user_talking"] = ut

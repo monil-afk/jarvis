@@ -75,7 +75,7 @@ PREROLL_SECONDS = 0.4   # audio kept from just before speech starts
 
 # "Jarvis" and how Whisper sometimes spells it. Must be in the first words.
 _WAKE = re.compile(r"^\W*(?:(?:hey|hi|ok|okay|yo|um|uh|so|and)\W+){0,2}"
-                   r"(?:jarvis|jervis|javis|jarvas|jarviss|jarvi|jarvice|jarbis|jarvus)\b[\s,.!?:;-]*(.*)$",
+                   r"(?:jarvis|jervis|javis|jarvas|jarviss|jarvi|jarvice|jarbis|jarvus|jovis|jarvees|jarves|darvis|darvas)\b[\s,.!?:;-]*(.*)$",
                    re.I | re.S)
 
 
@@ -93,7 +93,7 @@ def split_wake(text):
 FOLLOW_UP_SECONDS = float(_VCFG.get("follow_up_seconds", 6))
 CHIMES = bool(_VCFG.get("chimes", True))
 # Saying one of these ends the conversation (back to waiting for "Jarvis").
-_END_PHRASES = re.compile(r"^(that'?s all|that is all|that will be all|that'?ll be all|never ?mind|nothing|"
+_END_PHRASES = re.compile(r"^(that'?s all|that is all|that'?s it|that is it|(?:ok(?:ay)? )?(?:thanks?|thank you)(?: jarvis)?$|that will be all|that'?ll be all|never ?mind|nothing|"
                           r"stop|stop listening|go to standby|standby|goodbye|bye|no thanks|no thank you|"
                           r"i'?m good|i'?m done|we'?re done)\b", re.I)
 
@@ -348,7 +348,7 @@ def _warm_up():
         log(f"Speech recognition not ready: {e}", "warn")
     from ..core import brain
     if brain.warm_up():
-        log("Brain online (llama3.2:3b).", "ok")
+        log(f"Brain online ({brain.MODEL}).", "ok")
     else:
         log("Brain (Ollama) not responding yet.", "warn")
 
@@ -400,13 +400,15 @@ def run_voice_loop(on_transcript=None):
                     command = _standby_utterance()
                     if command is None:
                         continue
-                report(transcript="", reply="", activity="", activity_status="", task="")
+                # Wake word heard → the widget appears for this conversation.
+                report(awake=True, transcript="", reply="", activity="", activity_status="", task="")
 
                 if not command:
                     # Just "Jarvis" — chime, then listen (no spoken "Yes, sir").
                     command = _listen_once()
                     if not command:
                         log("Heard nothing after the wake word.")
+                        report(awake=False)
                         continue
                     log(f"You: {command}")
                 on_transcript(command)
@@ -426,12 +428,14 @@ def run_voice_loop(on_transcript=None):
                         say("Very good, sir.")
                         break
                     on_transcript(text)
+                # Conversation over → the widget fades away.
+                report(awake=False, state="idle", task="")
             except KeyboardInterrupt:
                 raise
             except Exception as e:
                 # e.g. mic unplugged mid-command. Recover, don't die.
                 log(f"Voice loop error: {type(e).__name__}: {e}", "warn")
-                report(state="error")
+                report(state="error", awake=False)
                 time.sleep(2)
     except KeyboardInterrupt:
         print("\nJARVIS voice loop stopped.", flush=True)

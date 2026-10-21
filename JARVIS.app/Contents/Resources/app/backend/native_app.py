@@ -73,13 +73,61 @@ def _widget_enabled() -> bool:
         return True
 
 
+_POS_FILE = Path.home() / ".jarvis" / "widget.json"
+# After the conversation ends, wait this long before the orb disappears.
+HIDE_AFTER_S = 1.5
+
+
 def _widget_position():
-    """Top-right corner of the main screen (None = let macOS decide)."""
+    """Where you last dragged it; else top-right of the main screen.
+    Clamped on-screen (e.g. after unplugging a monitor)."""
     try:
         scr = webview.screens[0]
-        return max(0, int(scr.width) - WIDGET_W - 24), 48
+        sw, sh = int(scr.width), int(scr.height)
     except Exception:
         return None, None
+    x, y = sw - WIDGET_W - 24, 48
+    try:
+        import json
+        saved = json.loads(_POS_FILE.read_text())
+        x, y = int(saved["x"]), int(saved["y"])
+    except Exception:
+        pass
+    return max(0, min(x, sw - WIDGET_W)), max(0, min(y, sh - WIDGET_H))
+
+
+def _save_position(x, y):
+    try:
+        import json
+        _POS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _POS_FILE.write_text(json.dumps({"x": int(x), "y": int(y)}))
+    except Exception:
+        pass
+
+
+def _follow_wake_word(widget):
+    """Show the orb only while JARVIS is awake: it appears when you say
+    "Jarvis" and fades away once the conversation is over."""
+    import json
+    shown, quiet_since = False, None
+    while True:
+        try:
+            with urllib.request.urlopen(HUD_URL + "/api/state", timeout=2) as r:
+                awake = bool(json.loads(r.read()).get("awake"))
+        except Exception:
+            awake = False
+        now = time.time()
+        if awake:
+            quiet_since = None
+            if not shown:
+                widget.show()
+                shown = True
+        elif shown:
+            quiet_since = quiet_since or now
+            if now - quiet_since >= HIDE_AFTER_S:
+                widget.hide()
+                shown = False
+        time.sleep(0.2)
 
 
 def _create_widget():
@@ -88,7 +136,7 @@ def _create_widget():
     # window box, no title bar. No background_color (it would paint a box).
     kwargs = dict(width=WIDGET_W, height=WIDGET_H, min_size=(WIDGET_W, WIDGET_H),
                   frameless=True, transparent=True, on_top=True,
-                  easy_drag=True, resizable=False)
+                  easy_drag=False, resizable=False, hidden=True)  # dragging: .pywebview-drag-region in widget.html
     if x is not None:
         kwargs.update(x=x, y=y)
     try:
@@ -101,7 +149,16 @@ def _create_widget():
     except TypeError:
         # Older pywebview without some options — keep the essentials.
         return webview.create_window("JARVIS Widget", WIDGET_URL, width=WIDGET_W,
-                                     height=WIDGET_H, on_top=True, frameless=True)
+                                     height=WIDGET_H, on_top=True, frameless=True, hidden=True)
+
+
+def _wire_widget(widget):
+    """Remember where you drag the orb; show/hide it with the wake word."""
+    try:
+        widget.events.moved += lambda x, y: _save_position(x, y)
+    except Exception:
+        pass
+    threading.Thread(target=_follow_wake_word, args=(widget,), daemon=True).start()
 
 
 def open_main_window():
@@ -119,6 +176,7 @@ def open_main_window():
         # Native macOS window styling
         background_color="#02070c",
     )
+    widget = None
     if _widget_enabled():
         widget = _create_widget()
 
@@ -132,7 +190,7 @@ def open_main_window():
         except Exception:
             pass
     # gui='cocoa' is automatic on macOS
-    webview.start(debug=False)
+    webview.start(_wire_widget, widget, debug=False) if widget else webview.start(debug=False)
 
 
 def open_widget():
@@ -140,8 +198,8 @@ def open_widget():
     if not wait_for_server():
         print("ERROR: JARVIS server did not start.")
         return
-    _create_widget()
-    webview.start(debug=False)
+    widget = _create_widget()
+    webview.start(_wire_widget, widget, debug=False)
 
 
 if __name__ == "__main__":

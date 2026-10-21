@@ -38,6 +38,13 @@ SKILL_LEVELS = {
     "tell_time": Level.SAFE,
     # state-changing but reversible
     "open_file": Level.SAFE,
+    # open = read-only; search covers ~ via Spotlight but never ~/Library
+    "open_anything": Level.SAFE,
+    "find_any_file": Level.SAFE,
+    # writes only to JARVIS's own memory database
+    "remember_this": Level.SAFE,
+    "remember_fact": Level.SAFE,
+    "what_you_know": Level.SAFE,
     "open_folder": Level.SAFE,
     "web_search": Level.SAFE,   # reads the web in the background, speaks the answer
     "get_weather": Level.SAFE,
@@ -74,7 +81,7 @@ def check(skill_name: str) -> Level:
     return SKILL_LEVELS.get(skill_name, Level.BLOCKED)
 
 
-def authorize(skill_name: str, ask_user) -> bool:
+def authorize(skill_name: str, ask_user, description: str = "") -> bool:
     """Gate a skill execution.
 
     ask_user: callable(prompt) -> bool. In production this speaks the
@@ -92,7 +99,8 @@ def authorize(skill_name: str, ask_user) -> bool:
     # CONFIRM — ask aloud
     # SECURITY: The prompt names the exact action. "Do it?" is not
     # enough; the user must hear WHAT they're approving.
-    approved = ask_user(f"Shall I proceed with {skill_name.replace('_', ' ')}?")
+    what = (description or skill_name.replace("_", " ")).rstrip(".")
+    approved = ask_user(f"{what[0].upper()}{what[1:]}, sir. Shall I go ahead?")
     memory.log_command(
         f"auth:{skill_name}",
         "approved by user" if approved else "denied by user",

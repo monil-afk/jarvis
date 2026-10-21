@@ -6,13 +6,17 @@
 <title>JARVIS Widget</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { background: transparent; }
+  html, body { background: transparent; cursor: grab; -webkit-user-select: none; user-select: none; }
+  body:active { cursor: grabbing; }
   body {
     width: 100vw; height: 100vh;
     display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
     overflow: hidden;
   }
-  #orb { display: block; }
+  /* macOS sends clicks THROUGH fully transparent pixels, so a sparse
+     particle orb could almost never be grabbed. This near-invisible disc
+     (alpha 0.02) gives the whole orb a solid surface to drag by. */
+  #orb { display: block; border-radius: 50%; background: rgba(2, 7, 12, 0.02); }
   /* Caption pill: the ONLY text. Fades in under the orb when there is
      something to show; fades out on its own when JARVIS goes quiet. */
   #caption {
@@ -28,9 +32,11 @@
   }
 </style>
 </head>
-<body>
-  <canvas id="orb" width="150" height="150"></canvas>
-  <div id="caption"></div>
+<body class="pywebview-drag-region">
+  <!-- pywebview-drag-region: press anywhere on the orb and drag to move it.
+       The app remembers where you leave it. -->
+  <canvas id="orb" class="pywebview-drag-region" width="150" height="150"></canvas>
+  <div id="caption" class="pywebview-drag-region"></div>
 <script>
   "use strict";
   /* JARVIS mini widget — Siri-sized. Just the particle orb with its
@@ -267,7 +273,7 @@
       applyDemo();
     }, 4000);
   } else {
-    setInterval(poll, 2000);
+    setInterval(poll, 250);
     poll();
   }
   document.addEventListener('keydown', (e) => {

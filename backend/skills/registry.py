@@ -6,7 +6,7 @@ core/security.SKILL_LEVELS. Anything missing from SKILL_LEVELS is
 default-denied by security.authorize(), so registering a function here
 alone is never enough to let it run.
 """
-from . import calendar_, files, system, timetable, web
+from . import calendar_, files, smart, system, timetable, web
 
 
 def morning_briefing() -> str:
@@ -44,6 +44,12 @@ def build_skills() -> dict:
         "add_reminder": calendar_.add_reminder,
         "create_event": calendar_.create_event,
         "morning_briefing": morning_briefing,
+        # "open anything" + learning about you
+        "open_anything": smart.open_anything,
+        "find_any_file": smart.find_any_file,
+        "remember_this": smart.remember_this,
+        "remember_fact": smart.remember_fact,
+        "what_you_know": smart.what_you_know,
         # files (sandboxed to Documents / Downloads / Desktop)
         "find_files": files.find_files,
         "open_file": files.open_file,

@@ -177,6 +177,12 @@ Rules:
   tell them how to do it, never ask them to do it themselves. Chain several tools if needed
   (e.g. find_files, then open_file). If they say they can't see something you opened, open it
   again. Never invent where things are on screen.
+- To open ANY app, file, folder or document, call open_anything with the name the user said (it
+  searches all their files and knows what they use most). "it"/"that" = the last thing opened.
+  To open a file in a specific app, pass app. Never say you can't find something before trying it.
+- When the user tells you something about themselves, call remember_fact.
+- NEVER say you did something (opened, moved, set, sent…) unless a tool call in this turn did it.
+  If you need to act, call the tool; don't describe it.
 - For ANY question about facts, news, people, places, prices, sport, definitions, how-tos or
   anything you are not certain of, call web_search: it reads the web for you and returns the
   answer. Do not answer such questions from memory and do not open the browser for them.
@@ -203,6 +209,31 @@ def _situation():
              f"Address the user as \"{(cfg.get('behavior') or {}).get('address_as', 'sir')}\".",
              f"Things you can do with tools: {WHAT_I_CAN_DO}."]
     try:
+        from ..skills import smart
+        front = smart.frontmost()
+        if front:
+            lines.append(f"In front on screen right now: {front}.")
+        if smart.last["name"]:
+            lines.append(f"The last thing you opened for the user: {smart.last['name']} "
+                         f"(\"it\"/\"that\" usually means this).")
+        apps = [n for n, _ in memory.top_used("app", 6)]
+        if apps:
+            lines.append("Apps the user uses most: " + ", ".join(apps) + ".")
+        habit = [n for n, _ in memory.top_used("app", 3, this_hour=True)]
+        if habit:
+            lines.append("Around this time of day they usually open: " + ", ".join(habit) + ".")
+        files = [n for n, _ in memory.recent_used("file", 5)]
+        if files:
+            lines.append("Files they opened recently: " + "; ".join(files) + ".")
+        facts = [v for k, v in memory.all_facts(12) if k.startswith("fact:")]
+        if facts:
+            lines.append("Things the user told you about themselves: " + "; ".join(facts) + ".")
+        al = memory.all_aliases(10)
+        if al:
+            lines.append("Their personal shortcuts: " + "; ".join(f"'{a}' means {b}" for a, b in al) + ".")
+    except Exception:
+        pass
+    try:
         from ..skills import timetable
         items = timetable.get_recurring_today()
         if items:
@@ -222,7 +253,9 @@ def _ollama_chat(messages, tools=None):
     SECURITY: bounded timeout. A hung model must not freeze JARVIS forever.
     """
     payload = {"model": MODEL, "messages": messages, "stream": False,
-               "keep_alive": "30m", "options": {"temperature": 0.4}}
+               "keep_alive": "30m", "options": {"temperature": 0.3}}
+    if MODEL.startswith(("qwen3", "deepseek-r1", "gpt-oss")):
+        payload["think"] = False   # answer directly — thinking costs seconds per turn
     if tools:
         payload["tools"] = tools
     req = urllib.request.Request(
@@ -246,6 +279,46 @@ def warm_up():
 
 
 # ------------------------------------------------------------ tool schemas
+# A small model picks the right tool far more reliably from 8 than from 35.
+_TOOL_HINTS = {
+    "open_anything": r"open|launch|start|show|pull up|bring|file|doc|pdf|deck|app|folder|again|it\b",
+    "find_any_file": r"find|where|search.*file|locate|which folder",
+    "quit_app": r"quit|close|kill|exit",
+    "web_search": r"who|what|when|where|why|how|news|price|score|latest|search|look up|tell me about",
+    "get_weather": r"weather|rain|temperature|forecast|hot|cold",
+    "open_website": r"website|browser|chrome|safari|\.com|youtube|gmail|link|source",
+    "set_volume": r"volume|louder|quieter|mute|sound",
+    "media_control": r"music|song|play|pause|skip|track|spotify",
+    "set_timer": r"timer|minutes|countdown",
+    "create_note": r"note|write down|jot",
+    "draft_email": r"email|mail|draft",
+    "add_reminder": r"remind",
+    "read_reminders": r"reminders|todo|to-do",
+    "next_event": r"next|meeting|standup|schedule|calendar|free",
+    "read_calendar": r"calendar|schedule|today|meetings",
+    "create_event": r"schedule|book|event|meeting at|add to calendar",
+    "take_screenshot": r"screenshot|screen shot|capture",
+    "remember_fact": r"remember|don'?t forget|keep in mind",
+    "remember_this": r"when i say|means|shortcut",
+    "what_you_know": r"know about me|learned|learnt",
+    "tell_time": r"time|date|day",
+    "run_shortcut": r"shortcut",
+    "lock_mac": r"lock",
+    "sleep_mac": r"sleep",
+    "list_apps": r"apps|running",
+}
+_CORE_TOOLS = ("open_anything", "web_search", "remember_fact")
+
+
+def pick_tools(text, skills, limit=8):
+    t = text.lower()
+    names = [n for n, rx in _TOOL_HINTS.items() if n in skills and re.search(rx, t)]
+    for n in _CORE_TOOLS:
+        if n in skills and n not in names:
+            names.append(n)
+    return names[:limit]
+
+
 _PY_TO_JSON = {str: "string", int: "integer", float: "number", bool: "boolean"}
 
 
@@ -322,13 +395,33 @@ def _num(s):
     return None
 
 
+def _apps_lower():
+    try:
+        from ..skills.system import installed_apps
+        return {a.lower() for a in installed_apps()}
+    except Exception:
+        return set()
+
+
 def route(text: str):
     """Match obvious commands. Returns (skill_name, args) or None."""
     t = normalize(text)
     if not t:
         return None
 
-    if re.search(r"\bwhat time is it\b|\bwhat'?s the time\b|\bwhat'?s (the |today'?s )?date\b"
+    m = re.match(r"(?:remember|note|learn)(?: that)? (?:when i say |if i say )?[\"']?(.+?)[\"']? "
+                 r"(?:means|is short for|refers to|=|then open|open|opens) (.+)$", t)
+    if m:
+        return "remember_this", {"phrase": m.group(1), "meaning": m.group(2)}
+    m = re.match(r"when i say [\"']?(.+?)[\"']?,? (?:i mean|open|that means) (.+)$", t)
+    if m:
+        return "remember_this", {"phrase": m.group(1), "meaning": m.group(2)}
+    m = re.match(r"(?:remember|don'?t forget|keep in mind)(?: that)? (.+)$", t)
+    if m:
+        return "remember_fact", {"fact": m.group(1)}
+    if re.search(r"\bwhat do you know about me\b|\bwhat have you learn(?:ed|t)\b", t):
+        return "what_you_know", {}
+    if re.search(r"\bwhat time is it\b|\bwhat time it is\b|\bwhat'?s the time\b|\bwhat'?s (the |today'?s )?date\b"
                  r"|\bwhat day is (it|today)\b|\btoday'?s date\b", t):
         return "tell_time", {}
     # Explicit browser requests: "open youtube", "open X in the browser", "open the source".
@@ -389,8 +482,8 @@ def route(text: str):
         for alias in sorted(APP_ALIASES, key=len, reverse=True):
             if re.search(rf"\b{re.escape(alias)}\b", t):
                 return "open_app", {"name": alias}
-        if re.search(r"\b(it|that|the window)\b", t) and _last_opened:
-            return _last_opened
+        if re.search(r"\b(it|that|the window)\b", t):
+            return "open_anything", {"name": "it"}
 
     if re.search(r"\b(what'?s|what is|whats)\s+(next|coming up|up next)\b", t) \
             or re.search(r"\bnext (meeting|event|on my calendar|thing)\b", t) \
@@ -422,18 +515,31 @@ def route(text: str):
             return "set_volume", {"level": n}
     if re.search(r"\bwhat apps\b|\blist (the )?(running )?apps\b", t):
         return "list_apps", {}
-    m = re.match(r"(?:open|launch|start|run|bring up|switch to|go to) (?:the )?(?:app )?(.+)", t)
+    m = re.match(r"(?:bring|put|move) (.+?) (?:to the front|forward|up front|on top|back)$", t) \
+        or re.match(r"(?:focus(?: on)?|switch to|go back to) (.+)$", t)
+    if m and len(m.group(1).split()) <= 4:
+        return "open_anything", {"name": m.group(1)}
+    m = re.match(r"(?:open|launch|start|run|bring up|pull up|switch to|go to|show me) (?:up )?(.+)", t)
     if m:
         target = m.group(1).strip()
-        if re.search(r"\.\w{2,4}$", target) or "/" in target:
-            return "open_file", {"path": target}
-        return "open_app", {"name": target}
+        # "open the budget in numbers" → file + app
+        m2 = re.match(r"(.+?) (?:in|with|using) (?:the )?([\w .-]+?)(?: app)?$", target)
+        if m2 and m2.group(2) not in ("browser", "chrome", "safari") and \
+                (m2.group(2) in _apps_lower() or len(m2.group(2).split()) <= 2):
+            from ..skills.system import _match_installed, APP_ALIASES
+            if m2.group(2) in APP_ALIASES or _match_installed(m2.group(2)):
+                return "open_anything", {"name": m2.group(1), "app": m2.group(2)}
+        # Long sentences ("open granola and give me…") are split up in think();
+        # anything still containing a clause isn't a name.
+        if re.search(r"\s(?:and|then|so|because)\s", target) or len(target.split()) > 7:
+            return None
+        return "open_anything", {"name": target}
     m = re.match(r"(?:quit|close|kill|exit) (?:the )?(?:app )?(.+)", t)
-    if m:
+    if m and not re.search(r"\s(?:and|then|to|so|for|with)\s", m.group(1)):
         return "quit_app", {"name": m.group(1).strip()}
-    m = re.match(r"(?:find|search for|look for) (?:my |the )?(?:files? )?(?:called |named )?(.+)", t)
+    m = re.match(r"(?:find|search for|look for|where is|where'?s) (?:my |the )?(?:files? )?(?:called |named )?(.+)", t)
     if m and len(m.group(1)) > 1:
-        return "find_files", {"query": m.group(1).strip()}
+        return "find_any_file", {"query": m.group(1).strip()}
 
     # A real-world question → look it up and answer (not small talk about
     # JARVIS itself, and not about the user's own stuff).
@@ -453,7 +559,7 @@ def _run_skill(name, args, skills, ask_user, user_text):
         _activity(f"No skill for “{name}”", "failed")
         return f"I don't have a skill called {name}, sir."
     # SECURITY GATE 2: permission check (+ spoken confirm if needed).
-    if not security.authorize(name, ask_user):
+    if not security.authorize(name, ask_user, describe(name, args)):
         _activity(f"Cancelled: {describe(name, args).lower()}", "failed")
         return "Very well, sir. I've left it alone."
     # SECURITY GATE 3: only arguments the skill declares.
@@ -495,7 +601,10 @@ _ACK = {"open_app": "At once, sir.", "open_file": "At once, sir.", "open_folder"
 
 def _speakable(text: str) -> str:
     """Strip markdown/emoji-ish noise so `say` reads it naturally."""
-    t = re.sub(r"[*_`#>|]", "", str(text))
+    # Never read a raw tool call ({"name": "openfile", ...}) out loud.
+    t = re.sub(r"\{.*\}", "", str(text), flags=re.S)
+    t = re.sub(r"(?<=\w)_(?=\w)", " ", t)   # file_names read as words
+    t = re.sub(r"[*_`#>|]", "", t)
     t = " ".join(t.split())
     return t[:MAX_REPLY_CHARS] if t else "Done, sir."
 
@@ -504,17 +613,43 @@ def _parse_text_tool_call(content, skills):
     """Small models sometimes write the tool call as JSON text instead of
     using tool_calls. Recognize {"name": ..., "parameters": {...}}."""
     s = (content or "").strip()
-    if not (s.startswith("{") and s.endswith("}")):
+    # The JSON may be wrapped in a sentence: "I'll try again, sir. {...}"
+    start, end = s.find("{"), s.rfind("}")
+    if start < 0 or end <= start:
         return None
     try:
-        obj = json.loads(s)
+        obj = json.loads(s[start:end + 1])
     except ValueError:
+        return None
+    if not isinstance(obj, dict):
         return None
     name = obj.get("name") or obj.get("function")
     args = obj.get("parameters") or obj.get("arguments") or {}
-    if isinstance(name, str) and name in skills:
-        return {"function": {"name": name, "arguments": args}}
+    if not isinstance(name, str):
+        return None
+    # Small models drop underscores: "openfile" → "open_file".
+    key = re.sub(r"[^a-z]", "", name.lower())
+    for real in skills:
+        if real == name or real.replace("_", "") == key:
+            return {"function": {"name": real, "arguments": args}}
     return None
+
+
+_VERBS = (r"open|launch|start|close|quit|play|pause|resume|set|turn|search|look up|google|find|"
+          r"show|take|create|make|write|remind|tell|check|read|go to|mute|lock|skip|draft|email|"
+          r"send|remember|what|whats|what's|how|put|bring up|pull up|switch to|add|summari[sz]e|give|"
+          r"brief|explain|type|reply|translate|read out|let me know|list|delete|move|copy|save")
+_SPLIT = re.compile(rf",?\s+(?:and then|and also|then|after that|and)\s+(?=(?:also |please )?(?:{_VERBS})\b)"
+                    rf"|\s*;\s*|\.\s+(?=(?:{_VERBS})\b)", re.I)
+
+
+def split_steps(text):
+    """"open granola and then open the q3 file" → ["open granola", "open the q3 file"].
+    Only splits where the next part starts with a command verb, so
+    "search for salt and pepper" stays one step."""
+    t = re.sub(r"^\W*(?:hey |ok |okay )?jarvis\W+", "", (text or "").strip(), flags=re.I)
+    parts = [p.strip(" ,.") for p in _SPLIT.split(t) if p and p.strip(" ,.")]
+    return parts if len(parts) > 1 else [text]
 
 
 def think(user_text: str, skills: dict, ask_user) -> str:
@@ -526,6 +661,21 @@ def think(user_text: str, skills: dict, ask_user) -> str:
     user_text = (user_text or "").strip()
     if not user_text:
         return ""
+
+    # 0) Several commands in one breath: "open Granola and then open the
+    #    budget file" → run each step in order, like a person would.
+    steps = split_steps(user_text)
+    if len(steps) > 1:
+        replies = []
+        for step in steps[:4]:  # SECURITY: cap chained actions
+            replies.append(think(step, skills, ask_user))
+            time.sleep(0.4)     # let the previous app come to the front
+        return _speakable(" ".join(r for r in replies if r))
+
+    # Personal shortcuts: "deck time" → whatever you taught me.
+    alias = memory.get_alias(normalize(user_text))
+    if alias:
+        user_text = alias if re.match(rf"(?:{_VERBS})\b", alias, re.I) else f"open {alias}"
 
     # 1) Fast path for obvious commands.
     hit = route(user_text)
@@ -551,7 +701,7 @@ def think(user_text: str, skills: dict, ask_user) -> str:
         *_recent_convo(),
         {"role": "user", "content": user_text},
     ]
-    tools = [_tool_schema(n, f) for n, f in skills.items()]
+    tools = [_tool_schema(n, skills[n]) for n in pick_tools(user_text, skills)]
 
     _activity("Thinking it over")
     results = []

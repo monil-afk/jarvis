@@ -30,7 +30,7 @@ voice:
 # For a noticeably smarter JARVIS, change to qwen2.5:7b (about 4.7 GB,
 # downloaded automatically on the next launch).
 brain:
-  model: "llama3.2:3b"
+  model: "qwen3:8b"         # smarter tool use than llama3.2:3b (fits 16 GB)
 
 # Behavior
 behavior:
