@@ -52,7 +52,12 @@ SPEECH_START_TIMEOUT = 6.0
 # 3x the background noise level. (A fixed 0.015 missed normal speech when
 # macOS mic input volume was low — e.g. after Zoom turned it down.)
 SILENCE_THRESHOLD = 0.006
-_NOISE = {"floor": 0.003}   # background noise level, learned across utterances
+_NOISE = {"floor": 0.003, "hist": []}   # background noise, learned continuously
+_NOISE_WINDOW = 80          # ~5 s of 1024-sample blocks
+_NOISE_PCT = 20             # quietest 20% of recent sound = the room's noise
+# Mic health, for diagnosing "it doesn't hear me": loudest level seen and
+# whether the stream is pure digital silence (= macOS denied the mic).
+_MIC = {"peak": 0.0, "nonzero": False, "since": 0.0}
 # Widget shows "YOU" while you're talking; stays on this long through pauses.
 USER_TALK_HANG_S = 0.45
 WAKE_ACK = "Yes, sir."
@@ -74,21 +79,33 @@ WAKE_ENGINE = str(_VCFG.get("wake_engine", "whisper")).lower()
 # How long a pause means "I've finished talking". Shorter = snappier.
 SILENCE_SECONDS = float(_VCFG.get("end_of_speech_seconds", 0.8))
 # Standby: longest utterance we'll check for the wake word.
-STANDBY_MAX_SECONDS = 15
+# Kept short so that in a noisy room (where sound never "stops") a "Jarvis"
+# is still transcribed within a few seconds.
+STANDBY_MAX_SECONDS = 8
 PREROLL_SECONDS = 0.4   # audio kept from just before speech starts
 
-# "Jarvis" and how Whisper sometimes spells it. Must be in the first words.
-_WAKE = re.compile(r"^\W*(?:(?:hey|hi|ok|okay|yo|um|uh|so|and)\W+){0,2}"
-                   r"(?:jarvis|jervis|javis|jarvas|jarviss|jarvi|jarvice|jarbis|jarvus|jovis|jarvees|jarves|darvis|darvas)\b[\s,.!?:;-]*(.*)$",
-                   re.I | re.S)
+# "Jarvis" and how Whisper sometimes spells it — ANYWHERE in what was heard.
+# In a noisy room (a call, music, people talking) background sound and your
+# "Jarvis, …" end up in one chunk, so the name is rarely the first word.
+_WAKE = re.compile(r"\b(?:jarvis|jervis|javis|jarvas|jarviss|jarvi|jarvice|jarbis|jarvus|jovis|jarvees|"
+                   r"jarves|darvis|darvas)\b[\s,.!?:;'-]*", re.I)
 
 
 def split_wake(text):
-    """("Jarvis, open Finder.") -> (True, "open Finder.");  ("lunch?") -> (False, "")."""
-    m = _WAKE.match(text or "")
-    if not m:
+    """("Jarvis, open Finder.") -> (True, "open Finder.");  ("lunch?") -> (False, "").
+    ("…so anyway. Jarvis, what's next?") -> (True, "what's next?") — the
+    command is whatever follows the LAST "Jarvis"."""
+    text = text or ""
+    # Addressed, not mentioned: "Jarvis" starts a sentence ("… fine. Jarvis what's
+    # next") or is followed by a comma ("…so Jarvis, open Slack") — but not
+    # "I told Jarvis yesterday".
+    hits = [m for m in _WAKE.finditer(text)
+            if re.fullmatch(r"(?:.*[.!?])?\W*(?:(?:hey|hi|ok|okay|yo|um|uh|so|and|oh)\W+){0,2}",
+                            text[:m.start()], re.I | re.S)
+            or "," in m.group(0) or not text[m.end():].strip()]
+    if not hits:
         return False, ""
-    rest = m.group(1).strip()
+    rest = text[hits[-1].end():].strip()
     if re.sub(r"[^\w]", "", rest) == "":
         rest = ""
     return True, rest
@@ -163,6 +180,20 @@ def _single_instance():
     _lock_file.flush()
 
 
+def _reset_audio():
+    """Re-initialise PortAudio so it sees the current default microphone."""
+    try:
+        sd._terminate()
+    except Exception:
+        pass
+    try:
+        sd._initialize()
+        dev = sd.query_devices(kind="input")
+        print(f"[mic] audio reset — using {dev['name']}", flush=True)
+    except Exception as e:
+        print(f"[mic] audio reset failed: {e}", flush=True)
+
+
 def _input_volume():
     try:
         out = subprocess.run(["osascript", "-e", "input volume of (get volume settings)"],
@@ -186,6 +217,22 @@ def _watch_input_volume():
         else:
             warned = False
         time.sleep(60)
+
+
+def _mic_monitor():
+    """Every 10s write the mic level to the console log (never words)."""
+    silent_checks = 0
+    while True:
+        time.sleep(10)
+        peak, nonzero = _MIC["peak"], _MIC["nonzero"]
+        _MIC.update(peak=0.0, nonzero=False)
+        thresh = max(SILENCE_THRESHOLD, _NOISE["floor"] * 2.5)
+        print(f"[mic] loudest {peak:.4f}  noise {_NOISE['floor']:.4f}  speech bar {thresh:.4f}"
+              f"{'' if nonzero else '  (PURE SILENCE)'}", flush=True)
+        silent_checks = 0 if nonzero else silent_checks + 1
+        if silent_checks == 2:
+            log("The microphone is sending pure silence — macOS has probably blocked it. "
+                "Open System Settings › Privacy & Security › Microphone and switch JARVIS on.", "warn")
 
 
 def _heartbeat():
@@ -219,14 +266,22 @@ def _capture(start_timeout=SPEECH_START_TIMEOUT, max_seconds=MAX_RECORD_SECONDS,
         # underlying memory; holding a reference would corrupt audio.
         block = indata.copy()
         rms = float(np.sqrt(np.mean(block ** 2)))
+        _MIC["peak"] = max(_MIC["peak"], rms)
+        if rms > 0:
+            _MIC["nonzero"] = True
         now = time.time()
-        # Adaptive threshold: a noisy room raises the bar a little.
-        thresh = max(SILENCE_THRESHOLD, st["floor"] * 3.0)
+        # Noise floor = quietest 20% of the last ~5 s, updated on EVERY block,
+        # so a room with constant background sound raises the bar instead of
+        # everything counting as speech.
+        hist = _NOISE["hist"]
+        hist.append(rms)
+        del hist[:-_NOISE_WINDOW]
+        if len(hist) >= 16 and st["n"] % 4 == 0:
+            _NOISE["floor"] = st["floor"] = float(np.percentile(hist, _NOISE_PCT))
+        st["n"] += 1
+        thresh = max(SILENCE_THRESHOLD, st["floor"] * 2.5)
         loud = rms >= thresh
         if not st["speech"]:
-            if not loud:
-                st["floor"] = 0.97 * st["floor"] + 0.03 * rms
-                _NOISE["floor"] = st["floor"]
             pre.append(block)
             del pre[:-pre_max]
             if loud:
@@ -311,7 +366,10 @@ def _standby_utterance():
     text = _clean_transcript(transcribe(audio))
     woke, command = split_wake(text)
     if not woke:
-        return None  # SECURITY/PRIVACY: not for JARVIS — discarded, never logged
+        # SECURITY/PRIVACY: not for JARVIS — discarded. Only the length is
+        # logged (to the console), never the words.
+        print(f"[standby] heard {len(audio) / SAMPLE_RATE:.1f}s of speech, no wake word", flush=True)
+        return None
     log(f"You: {text}")
     return command
 
@@ -413,11 +471,13 @@ def run_voice_loop(on_transcript=None):
     threading.Thread(target=_heartbeat, daemon=True).start()
     threading.Thread(target=_warm_up, daemon=True).start()
     threading.Thread(target=_watch_input_volume, daemon=True).start()
+    threading.Thread(target=_mic_monitor, daemon=True).start()
 
     detector = _make_detector() if WAKE_ENGINE == "openwakeword" else None
     log("Online. Just say \"Jarvis, …\" — e.g. \"Jarvis, open Finder\".", "ok")
     report(state="idle")
 
+    errors = 0
     try:
         while True:
             try:
@@ -465,9 +525,18 @@ def run_voice_loop(on_transcript=None):
                 raise
             except Exception as e:
                 # e.g. mic unplugged mid-command. Recover, don't die.
-                log(f"Voice loop error: {type(e).__name__}: {e}", "warn")
+                errors += 1
+                if errors == 1 or errors % 30 == 0:   # don't flood the log
+                    log(f"Voice loop error: {type(e).__name__}: {e}", "warn")
                 report(state="error", awake=False)
+                if isinstance(e, sd.PortAudioError):
+                    # The mic changed (AirPods / iPhone / Zoom device came or
+                    # went) or CoreAudio got stuck. PortAudio keeps its device
+                    # list from startup, so reset it and use today's default mic.
+                    _reset_audio()
                 time.sleep(2)
+            else:
+                errors = 0
     except KeyboardInterrupt:
         print("\nJARVIS voice loop stopped.", flush=True)
     finally:
